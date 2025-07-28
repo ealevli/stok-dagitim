@@ -3,7 +3,7 @@ import streamlit as st
 import io
 
 # -------------------------------------------------------------------
-# SİZİN EN SON VERDİĞİNİZ KODUN TAMAMI BURADA
+# SİZİN SAĞLADIĞINIZ KODUN TAMAMI BURADA
 # -------------------------------------------------------------------
 
 def akilli_sayi_cevirici(value):
@@ -15,21 +15,21 @@ def akilli_sayi_cevirici(value):
         return 0.0
     try:
         s_val = str(value)
-        # Eğer hem virgül hem nokta varsa, noktayı binlik, virgülü ondalık kabul et
         if ',' in s_val and '.' in s_val:
             s_val = s_val.replace('.', '').replace(',', '.')
-        # Sadece virgül varsa, onu ondalık kabul et
         elif ',' in s_val:
             s_val = s_val.replace(',', '.')
-        # Diğer durumlarda (sadece nokta var veya hiçbiri yok) Python doğru anlar
         return float(s_val)
     except (ValueError, TypeError):
         return 0.0
 
-def stok_dagitimi(df): # Fonksiyon artık dosya yolu yerine DataFrame alıyor
+def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak şekilde düzenlendi
     """
-    Sizin en son sağladığınız dağıtım mantığı.
+    Sizin tarif ettiğiniz dağıtım mantığını ve bu mantığın doğru çalışması için
+    gerekli akıllı sayı okuma düzeltmesini içeren nihai fonksiyon.
     """
+    # Dosya okuma bloğu kaldırıldı çünkü df zaten argüman olarak geliyor.
+    
     sutun_duzeltmeleri = {
         'BirollarTeklifFiyat': 'Birollar TeklifFiyat', 'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
         'MNGIST OZIS ADET': 'MNGIST OZIS Adet', 'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
@@ -42,11 +42,7 @@ def stok_dagitimi(df): # Fonksiyon artık dosya yolu yerine DataFrame alıyor
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
-    # Her bayi için 'Atanan Adet' sütunları tekrar ekleniyor
-    for bayi in bayiler:
-        if f'{bayi} Atanan Adet' not in df.columns:
-            df[f'{bayi} Atanan Adet'] = 0.0
-
+    # Sonuç DataFrame'ine yeni sütunları ekle
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = "" 
     df['Toplam Satış Tutarı'] = 0.0
@@ -56,7 +52,8 @@ def stok_dagitimi(df): # Fonksiyon artık dosya yolu yerine DataFrame alıyor
             continue
 
         kalan_stok = akilli_sayi_cevirici(row.get('Ges.bestand'))
-        if kalan_stok <= 0: continue
+        if kalan_stok <= 0:
+            continue
 
         teklifler = []
         for bayi in bayiler:
@@ -86,20 +83,18 @@ def stok_dagitimi(df): # Fonksiyon artık dosya yolu yerine DataFrame alıyor
                 kalan_stok -= atanacak_adet
                 secilenler.append(bayi_adi)
                 toplam_gelir_bu_urun_icin += satis_tutari
-                # Atanan Adet sütununu doldur
-                df.loc[index, f'{bayi_adi} Atanan Adet'] = atanacak_adet
                 
         df.loc[index, 'Toplam Satış Tutarı'] = toplam_gelir_bu_urun_icin
         df.loc[index, 'Kalan Stok'] = kalan_stok
-        df.loc[index, 'Seçilen Bayiler'] = ", ".join(list(dict.fromkeys(secilenler)))
-
+        df.loc[index, 'Seçilen Bayiler'] = ", ".join(secilenler)
+    
     ozet_df = pd.DataFrame(list(bayi_toplam_odemeleri.items()), columns=['Bayi Adı', 'Toplam Ödenecek Tutar'])
     ozet_df = ozet_df[ozet_df['Toplam Ödenecek Tutar'] > 0].sort_values(by='Toplam Ödenecek Tutar', ascending=False)
     
     return df, ozet_df
 
 # -------------------------------------------------------------------
-# STREAMLIT WEB UYGULAMASI KODU
+# STREAMLIT WEB UYGULAMASI ARAYÜZÜ
 # -------------------------------------------------------------------
 
 st.set_page_config(page_title="Stok Dağıtım Otomasyonu", layout="wide")
@@ -110,15 +105,15 @@ st.write("Bu araç, Excel dosyanızdaki teklifleri analiz ederek stokları en y�
 uploaded_file = st.file_uploader("Lütfen Excel dosyanızı buraya sürükleyin veya seçin", type=["xlsx"])
 
 if uploaded_file is not None:
-    st.success(f"'{uploaded_file.name}' başarıyla yüklendi!")
+    st.info(f"'{uploaded_file.name}' dosyası yüklendi. Hesaplamayı başlatmak için butona tıklayın.")
     
     try:
         # Excel dosyasını direkt olarak DataFrame'e oku
-        # dtype=str ile okumak, sayı formatlarının korunmasına yardımcı olur.
         df_input = pd.read_excel(uploaded_file, dtype=str)
         
         if st.button("Stok Dağıtımını Başlat", type="primary"):
             with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
+                # Sizin sağladığınız ana fonksiyonu çağır
                 sonuc_df, ozet_df = stok_dagitimi(df_input)
 
             st.success("✅ Hesaplama başarıyla tamamlandı!")
