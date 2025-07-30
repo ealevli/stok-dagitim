@@ -30,22 +30,33 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
     """
     # Dosya okuma bloğu kaldırıldı çünkü df zaten argüman olarak geliyor.
     
-    # GÜNCELLEME: Yeni bayi 'KolistG' eklendi.
+    # GÜNCELLEME: Hem eski hem yeni sütun adlarını tanır.
     sutun_duzeltmeleri = {
-        'BirollarTeklifFiyat': 'Birollar TeklifFiyat', 'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
-        'MNGIST OZIS ADET': 'MNGIST OZIS Adet', 'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
-        'Kolist1 adet': 'Kolist1 Adet', 'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
-        'Kolist2 adet': 'Kolist2 Adet', 'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat',
+        # Ana stok sütununu 'Adet' olarak standartlaştır
+        'Ges.bestand': 'Adet',
+        'Ges.bes': 'Adet',
+        'tan': 'Adet',
+        
+        # Bayi Adet Sütunları
+        'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
+        'Kolist1 adet': 'Kolist1 Adet',
+        'Kolist2 adet': 'Kolist2 Adet',
         'KolistG adet': 'KolistG Adet',
+        
+        # Bayi Teklif Sütunları
+        'BirollarTeklifFiyat': 'Birollar TeklifFiyat',
+        'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
+        'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
+        'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
+        'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat',
         'KolistG Tekliffiyat': 'KolistG TeklifFiyat'
     }
     df.rename(columns=sutun_duzeltmeleri, inplace=True)
 
-    bayiler = sorted(list(set([col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col])))
+    bayiler = sorted(list(set([col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col and col != 'Adet'])))
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
-    # Sonuç DataFrame'ine yeni sütunları ekle
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = "" 
     df['Toplam Satış Tutarı'] = 0.0
@@ -54,7 +65,8 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
         if str(row.get('Durum', '')).strip() != 'satılabilinir':
             continue
 
-        kalan_stok = akilli_sayi_cevirici(row.get('Ges.bestand'))
+        # GÜNCELLEME: Stok miktarı 'Adet' sütunundan okunuyor.
+        kalan_stok = akilli_sayi_cevirici(row.get('Adet'))
         if kalan_stok <= 0:
             continue
 
@@ -110,29 +122,28 @@ uploaded_file = st.file_uploader("Lütfen Excel dosyanızı buraya sürükleyin 
 if uploaded_file is not None:
     st.info(f"'{uploaded_file.name}' dosyası yüklendi.")
     
-    # GÜNCELLEME: Başlık satırını seçme özelliği eklendi.
     header_row = st.number_input(
         "Excel'deki başlıklar kaçıncı satırda?", 
         min_value=1, 
         value=1, 
-        help="Lütfen sütun başlıklarınızın (Ges.bestand, Durum vb.) bulunduğu satır numarasını girin."
+        help="Lütfen sütun başlıklarınızın (Adet, Durum vb.) bulunduğu satır numarasını girin."
     )
     
     if st.button("Stok Dağıtımını Başlat", type="primary"):
         try:
-            # GÜNCELLEME: Excel dosyası, seçilen başlık satırına göre okunuyor.
             header_index = header_row - 1
             df_input = pd.read_excel(uploaded_file, header=header_index, dtype=str)
             
-            # Başlıkların doğru okunduğundan emin olmak için kontrol
-            if 'Ges.bestand' not in df_input.columns:
+            # GÜNCELLEME: 'Adet' sütununun varlığı kontrol ediliyor.
+            # Önce sütun adlarını düzelterek kontrol yapalım.
+            df_input.rename(columns={'Ges.bestand': 'Adet', 'Ges.bes': 'Adet', 'tan': 'Adet'}, inplace=True)
+            if 'Adet' not in df_input.columns:
                  st.error(
-                    f"HATA: 'Ges.bestand' sütunu bulunamadı. "
+                    f"HATA: Stok miktarını içeren 'Adet' (veya 'Ges.bestand', 'Ges.bes') sütunu bulunamadı. "
                     f"Lütfen doğru başlık satırını ({header_row}) seçtiğinizden emin olun."
                 )
             else:
                 with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
-                    # Sizin sağladığınız ana fonksiyonu çağır
                     sonuc_df, ozet_df = stok_dagitimi(df_input)
 
                 st.success("✅ Hesaplama başarıyla tamamlandı!")
@@ -143,13 +154,11 @@ if uploaded_file is not None:
                 st.subheader("Detaylı Dağıtım Sonucu")
                 st.dataframe(sonuc_df)
                 
-                # Excel dosyasını hafızada oluşturma
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     sonuc_df.to_excel(writer, sheet_name='Detaylı Dağıtım Sonucu', index=False)
                     ozet_df.to_excel(writer, sheet_name='Bayi Özet Tablosu', index=False)
                     
-                    # Excel'de sayı formatını ayarlama
                     workbook = writer.book
                     ws1 = writer.sheets['Detaylı Dağıtım Sonucu']
                     ws2 = writer.sheets['Bayi Özet Tablosu']
