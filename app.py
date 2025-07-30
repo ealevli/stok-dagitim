@@ -3,7 +3,7 @@ import streamlit as st
 import io
 
 # -------------------------------------------------------------------
-# SİZİN SAĞLADIĞINIZ KODUN TAMAMI BURADA
+# AKILLI SAYI DÖNÜŞTÜRÜCÜ VE ANA DAĞITIM FONKSİYONU
 # -------------------------------------------------------------------
 
 def akilli_sayi_cevirici(value):
@@ -15,21 +15,29 @@ def akilli_sayi_cevirici(value):
         return 0.0
     try:
         s_val = str(value)
+        # Önce binlik ayıracı olan noktayı kaldır, sonra ondalık ayıracı olan virgülü noktaya çevir
         if ',' in s_val and '.' in s_val:
-            s_val = s_val.replace('.', '').replace(',', '.')
+            if s_val.find('.') < s_val.find(','):
+                s_val = s_val.replace('.', '').replace(',', '.')
+            else: # 1,250.75 formatı için
+                s_val = s_val.replace(',', '')
+        # Sadece virgül varsa ondalık ayıracı olarak kabul et
         elif ',' in s_val:
             s_val = s_val.replace(',', '.')
         return float(s_val)
     except (ValueError, TypeError):
         return 0.0
 
-def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak şekilde düzenlendi
+def stok_dagitimi(df):
     """
     Sizin tarif ettiğiniz dağıtım mantığını ve bu mantığın doğru çalışması için
     gerekli akıllı sayı okuma düzeltmesini içeren nihai fonksiyon.
     """
-    # Dosya okuma bloğu kaldırıldı çünkü df zaten argüman olarak geliyor.
-    
+    # HATA DÜZELTME: Excel'den gelebilecek sayısal veya boş sütun başlıklarının
+    # hataya yol açmasını engellemek için tüm başlıkları metne (string) çevir.
+    # Bu satır, 'int is not iterable' hatasını çözer.
+    df.columns = [str(c) for c in df.columns]
+
     sutun_duzeltmeleri = {
         'BirollarTeklifFiyat': 'Birollar TeklifFiyat', 'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
         'MNGIST OZIS ADET': 'MNGIST OZIS Adet', 'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
@@ -48,7 +56,7 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
     df['Toplam Satış Tutarı'] = 0.0
 
     for index, row in df.iterrows():
-        if str(row.get('Durum', '')).strip() != 'satılabilinir':
+        if str(row.get('Durum', '')).strip().lower() != 'satılabilinir':
             continue
 
         kalan_stok = akilli_sayi_cevirici(row.get('Ges.bestand'))
@@ -61,8 +69,8 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
             teklif_fiyat_col = f'{bayi} TeklifFiyat'.strip()
             
             if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
-                talep_adet = akilli_sayi_cevirici(row[talep_adet_col])
-                teklif_fiyat = akilli_sayi_cevirici(row[teklif_fiyat_col])
+                talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col))
+                teklif_fiyat = akilli_sayi_cevirici(row.get(teklif_fiyat_col))
                 
                 if talep_adet > 0 and teklif_fiyat > 0:
                     teklifler.append({'bayi_adi': bayi, 'talep_adet': talep_adet, 'teklif_fiyat': teklif_fiyat})
@@ -109,17 +117,17 @@ if uploaded_file is not None:
     
     try:
         # Excel dosyasını direkt olarak DataFrame'e oku
-        df_input = pd.read_excel(uploaded_file, dtype=str)
+        df_input = pd.read_excel(uploaded_file, engine='openpyxl')
         
         if st.button("Stok Dağıtımını Başlat", type="primary"):
             with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
-                # Sizin sağladığınız ana fonksiyonu çağır
-                sonuc_df, ozet_df = stok_dagitimi(df_input)
+                # Ana fonksiyonu çağır
+                sonuc_df, ozet_df = stok_dagitimi(df_input.copy()) # Orjinal df'i korumak için kopyasını gönder
 
             st.success("✅ Hesaplama başarıyla tamamlandı!")
             
             st.subheader("Bayi Özet Tablosu")
-            st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f}"}))
+            st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f} TL"}))
             
             st.subheader("Detaylı Dağıtım Sonucu")
             st.dataframe(sonuc_df)
@@ -139,11 +147,11 @@ if uploaded_file is not None:
                 for col_name in ['Toplam Satış Tutarı', 'Kalan Stok']:
                     if col_name in sonuc_df.columns:
                         col_idx = list(sonuc_df.columns).index(col_name) + 1
-                        for row in ws1.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                        for row in ws1.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx, max_row=ws1.max_row):
                             if row[0].value is not None: row[0].number_format = number_format
                 
                 col_idx_2 = list(ozet_df.columns).index('Toplam Ödenecek Tutar') + 1
-                for row in ws2.iter_rows(min_row=2, min_col=col_idx_2, max_col=col_idx_2):
+                for row in ws2.iter_rows(min_row=2, min_col=col_idx_2, max_col=col_idx_2, max_row=ws2.max_row):
                     if row[0].value is not None: row[0].number_format = number_format
 
             processed_data = output.getvalue()
