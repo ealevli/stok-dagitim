@@ -33,34 +33,35 @@ def stok_dagitimi(df):
     """
     df.columns = [str(c) for c in df.columns]
 
-    # --- GÜNCELLEME: Düzeltme listesi daha kapsamlı hale getirildi ---
-    # Bu sözlük, eski ('TeklifFiyat') ve farklı yazılmış sütun adlarını
-    # standart formata ('Teklif') çevirerek geriye dönük uyumluluk sağlar.
     sutun_duzeltmeleri = {
-        # Adet Sütunları için Düzeltmeler
-        'KolG Adı': 'KolG Adet',
-        'Kolist1 adet': 'Kolist1 Adet',
-        'Kolist2 adet': 'Kolist2 Adet',
-        'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
-        'MNGIST GANTEP ADET': 'MNGIST GANTEP Adet',
-
-        # Teklif Sütunları için Kapsamlı Düzeltmeler
-        'DogmerTeklif': 'Doğmer Teklif',
-        'Doğmer Tekliffiyat': 'Doğmer Teklif',
-        'HasmerTeki': 'Hasmer Teklif',
-        'Hasmer Tekliffiyat': 'Hasmer Teklif',
-        'KolG Tek': 'KolG Teklif',
-        'KolG Tekliffiyat': 'KolG Teklif',
-        'Kolist1 Tekliffiyat': 'Kolist1 Teklif',
-        'Kolist2 Tekliffiyat': 'Kolist2 Teklif',
-        'BirollarTeklifFiyat': 'Birollar Teklif',
+        'Dogmer Adet': 'Doğmer Adet', 'Doğmer adet': 'Doğmer Adet',
+        'KolG Adı': 'KolG Adet', 'Kolist1 adet': 'Kolist1 Adet',
+        'Kolist2 adet': 'Kolist2 Adet', 'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
+        'MNGIST GANTEP ADET': 'MNGIST GANTEP Adet', 'DogmerTeklif': 'Doğmer Teklif',
+        'Doğmer Tekliffiyat': 'Doğmer Teklif', 'Dogmer Tekliffiyat': 'Doğmer Teklif',
+        'Doğmer TeklifFiyat': 'Doğmer Teklif', 'HasmerTeki': 'Hasmer Teklif',
+        'Hasmer Tekliffiyat': 'Hasmer Teklif', 'Hasmer TeklifFiyat': 'Hasmer Teklif',
+        'KolG Tek': 'KolG Teklif', 'KolG Tekliffiyat': 'KolG Teklif',
+        'Kolist1 Tekliffiyat': 'Kolist1 Teklif', 'Kolist1 TeklifFiyat': 'Kolist1 Teklif',
+        'Kolist2 Tekliffiyat': 'Kolist2 Teklif', 'Kolist2 TeklifFiyat': 'Kolist2 Teklif',
+        'BirollarTeklifFiyat': 'Birollar Teklif', 'Birollar Tekliffiyat': 'Birollar Teklif',
         'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS Teklif',
         'MNGIST GANTEP Tekliffiyat': 'MNGIST GANTEP Teklif',
     }
     df.rename(columns=sutun_duzeltmeleri, inplace=True)
 
-    # Bayi listesini 'Adet' içeren sütunlardan otomatik olarak bulur.
-    bayiler = sorted(list(set([col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col])))
+    # --- KÖKLÜ DÜZELTME: Daha Akıllı Bayi Tanıma Mantığı ---
+    # Bu blok, sadece hem 'Adet' hem de 'Teklif' sütunu olan bayileri
+    # bularak hesaplamaya dahil eder. Bu, eksik bayi sorununu çözer.
+    bayiler = []
+    potential_dealers = [col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col]
+    for dealer_name in potential_dealers:
+        adet_col_name = f'{dealer_name} Adet'.strip()
+        teklif_col_name = f'{dealer_name} Teklif'.strip()
+        if adet_col_name in df.columns and teklif_col_name in df.columns:
+            bayiler.append(dealer_name)
+    bayiler = sorted(list(set(bayiler)))
+    # --- DÜZELTME SONU ---
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
@@ -86,12 +87,11 @@ def stok_dagitimi(df):
             talep_adet_col = f'{bayi} Adet'.strip()
             teklif_fiyat_col = f'{bayi} Teklif'.strip()
             
-            if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
-                talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col))
-                teklif_fiyat = akilli_sayi_cevirici(row.get(teklif_fiyat_col))
-                
-                if talep_adet > 0 and teklif_fiyat > 0:
-                    teklifler.append({'bayi_adi': bayi, 'talep_adet': talep_adet, 'teklif_fiyat': teklif_fiyat})
+            talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col))
+            teklif_fiyat = akilli_sayi_cevirici(row.get(teklif_fiyat_col))
+            
+            if talep_adet > 0 and teklif_fiyat > 0:
+                teklifler.append({'bayi_adi': bayi, 'talep_adet': talep_adet, 'teklif_fiyat': teklif_fiyat})
 
         sirali_teklifler = sorted(teklifler, key=lambda x: x['teklif_fiyat'], reverse=True)
         
