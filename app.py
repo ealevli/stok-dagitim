@@ -15,36 +15,21 @@ import io
 
 
 def akilli_sayi_cevirici(value):
-
-    """
-
-    Excel'deki farklı sayı formatlarını ('1.250,75' veya '1250.75' gibi)
-
-    akıllıca anlayan ve doğru şekilde sayıya (float) çeviren nihai fonksiyon.
-
-    """
-
-    if pd.isna(value) or value == '':
-
-        return 0.0
-
-    try:
-
-        s_val = str(value)
-
-        if ',' in s_val and '.' in s_val:
-
-            s_val = s_val.replace('.', '').replace(',', '.')
-
-        elif ',' in s_val:
-
-            s_val = s_val.replace(',', '.')
-
-        return float(s_val)
-
-    except (ValueError, TypeError):
-
-        return 0.0
+    """
+    Excel'deki farklı sayı formatlarını ('1.250,75' veya '1250.75' gibi)
+    akıllıca anlayan ve doğru şekilde sayıya (float) çeviren nihai fonksiyon.
+    """
+    if pd.isna(value) or value == '':
+        return 0.0
+    try:
+        s_val = str(value)
+        if ',' in s_val and '.' in s_val:
+            s_val = s_val.replace('.', '').replace(',', '.')
+        elif ',' in s_val:
+            s_val = s_val.replace(',', '.')
+        return float(s_val)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 
