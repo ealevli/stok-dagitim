@@ -3,7 +3,7 @@ import streamlit as st
 import io
 
 # -------------------------------------------------------------------
-# SİZİN SAĞLADIĞINIZ KODUN TAMAMI BURADA
+# KODUN NİHAİ VE EN KARARLI VERSİYONU
 # -------------------------------------------------------------------
 
 def akilli_sayi_cevirici(value):
@@ -16,68 +16,73 @@ def akilli_sayi_cevirici(value):
     try:
         s_val = str(value)
         if ',' in s_val and '.' in s_val:
-            s_val = s_val.replace('.', '').replace(',', '.')
+            if s_val.find('.') < s_val.find(','):
+                s_val = s_val.replace('.', '').replace(',', '.')
+            else:
+                s_val = s_val.replace(',', '')
         elif ',' in s_val:
             s_val = s_val.replace(',', '.')
         return float(s_val)
     except (ValueError, TypeError):
         return 0.0
 
-def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak şekilde düzenlendi
+def stok_dagitimi(df):
     """
-    Sizin tarif ettiğiniz dağıtım mantığını ve bu mantığın doğru çalışması için
-    gerekli akıllı sayı okuma düzeltmesini içeren nihai fonksiyon.
+    Sütun adı farklılıklarına karşı esnek, akıllı bayi tanıma ve dağıtım mantığı.
     """
-    # Dosya okuma bloğu kaldırıldı çünkü df zaten argüman olarak geliyor.
+    # Adım 1: Tüm sütun adlarını standart bir formata (küçük harf) getirerek tutarlılık sağla.
+    original_columns = df.columns
+    df.columns = [str(col).lower().strip() for col in df.columns]
     
-    # GÜNCELLEME: Hem eski hem yeni sütun adlarını tanır.
-    sutun_duzeltmeleri = {
-        # Ana stok sütununu 'Adet' olarak standartlaştır
-        'Ges.bestand': 'Adet',
-        'Ges.bes': 'Adet',
-        'tan': 'Adet',
-        
-        # Bayi Adet Sütunları
-        'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
-        'Kolist1 adet': 'Kolist1 Adet',
-        'Kolist2 adet': 'Kolist2 Adet',
-        'KolistG adet': 'KolistG Adet',
-        
-        # Bayi Teklif Sütunları
-        'BirollarTeklifFiyat': 'Birollar TeklifFiyat',
-        'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
-        'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
-        'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
-        'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat',
-        'KolistG Tekliffiyat': 'KolistG TeklifFiyat'
-    }
-    df.rename(columns=sutun_duzeltmeleri, inplace=True)
+    # Adım 2: Ana stok sütununu 'adet' olarak standartlaştır.
+    df.rename(columns={'ges.bestand': 'adet', 'ges.bes': 'adet', 'tan': 'adet'}, inplace=True)
 
-    bayiler = sorted(list(set([col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col and col != 'Adet'])))
+    # Adım 3: Hem '... adet' hem de '... teklif...' sütunları olan bayileri akıllıca bul.
+    bayiler = []
+    potential_dealers = list(set([col.replace(' adet', '') for col in df.columns if col.endswith(' adet') and col != 'adet']))
     
+    for bayi_name in potential_dealers:
+        # Fiyat sütununu esnek bir şekilde ara ('tekliffiyat', 'teklifiyat', 'tek' vb.)
+        for col in df.columns:
+            if col.startswith(bayi_name) and any(col.endswith(suffix) for suffix in ['tekliffiyat', 'teklifiyat', 'tek']):
+                bayiler.append(bayi_name)
+                break # Eşleşen ilk fiyat sütununu bul ve sonraki bayiye geç
+    
+    bayiler = sorted(list(set(bayiler)))
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
-    df['Kalan Stok'] = 0.0
-    df['Seçilen Bayiler'] = "" 
-    df['Toplam Satış Tutarı'] = 0.0
+    # Orijinal büyük/küçük harfli sütun adlarını kullanarak yeni bir DataFrame oluştur.
+    # Bu, sonuçların orijinal dosya gibi görünmesini sağlar.
+    sonuc_df = pd.DataFrame(columns=original_columns)
+    sonuc_df['Kalan Stok'] = 0.0
+    sonuc_df['Seçilen Bayiler'] = "" 
+    sonuc_df['Toplam Satış Tutarı'] = 0.0
 
     for index, row in df.iterrows():
-        if str(row.get('Durum', '')).strip() != 'satılabilinir':
+        # Orijinal satırı sonuç df'ine kopyala
+        for i, col_name in enumerate(original_columns):
+            sonuc_df.loc[index, col_name] = row.iloc[i]
+
+        if str(row.get('durum', '')).strip() != 'satılabilinir':
             continue
 
-        # GÜNCELLEME: Stok miktarı 'Adet' sütunundan okunuyor.
-        kalan_stok = akilli_sayi_cevirici(row.get('Adet'))
+        kalan_stok = akilli_sayi_cevirici(row.get('adet'))
         if kalan_stok <= 0:
             continue
 
         teklifler = []
         for bayi in bayiler:
-            talep_adet_col = f'{bayi} Adet'.strip()
-            teklif_fiyat_col = f'{bayi} TeklifFiyat'.strip()
+            talep_adet_col = f'{bayi} adet'
             
-            if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
-                talep_adet = akilli_sayi_cevirici(row[talep_adet_col])
-                teklif_fiyat = akilli_sayi_cevirici(row[teklif_fiyat_col])
+            teklif_fiyat_col = None
+            for col in df.columns:
+                if col.startswith(bayi) and any(col.endswith(suffix) for suffix in ['tekliffiyat', 'teklifiyat', 'tek']):
+                    teklif_fiyat_col = col
+                    break
+            
+            if teklif_fiyat_col:
+                talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col))
+                teklif_fiyat = akilli_sayi_cevirici(row.get(teklif_fiyat_col))
                 
                 if talep_adet > 0 and teklif_fiyat > 0:
                     teklifler.append({'bayi_adi': bayi, 'talep_adet': talep_adet, 'teklif_fiyat': teklif_fiyat})
@@ -94,19 +99,20 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
             atanacak_adet = min(talep_edilen, kalan_stok)
             if atanacak_adet > 0:
                 satis_tutari = atanacak_adet * birim_fiyat
-                bayi_toplam_odemeleri[bayi_adi] += satis_tutari
+                bayi_toplam_odemeleri[bayi] += satis_tutari
                 kalan_stok -= atanacak_adet
-                secilenler.append(bayi_adi)
+                secilenler.append(bayi.title())
                 toplam_gelir_bu_urun_icin += satis_tutari
                 
-        df.loc[index, 'Toplam Satış Tutarı'] = toplam_gelir_bu_urun_icin
-        df.loc[index, 'Kalan Stok'] = kalan_stok
-        df.loc[index, 'Seçilen Bayiler'] = ", ".join(secilenler)
+        sonuc_df.loc[index, 'Toplam Satış Tutarı'] = toplam_gelir_bu_urun_icin
+        sonuc_df.loc[index, 'Kalan Stok'] = kalan_stok
+        sonuc_df.loc[index, 'Seçilen Bayiler'] = ", ".join(secilenler)
     
     ozet_df = pd.DataFrame(list(bayi_toplam_odemeleri.items()), columns=['Bayi Adı', 'Toplam Ödenecek Tutar'])
+    ozet_df['Bayi Adı'] = ozet_df['Bayi Adı'].str.title()
     ozet_df = ozet_df[ozet_df['Toplam Ödenecek Tutar'] > 0].sort_values(by='Toplam Ödenecek Tutar', ascending=False)
     
-    return df, ozet_df
+    return sonuc_df, ozet_df
 
 # -------------------------------------------------------------------
 # STREAMLIT WEB UYGULAMASI ARAYÜZÜ
@@ -132,24 +138,26 @@ if uploaded_file is not None:
     if st.button("Stok Dağıtımını Başlat", type="primary"):
         try:
             header_index = header_row - 1
-            df_input = pd.read_excel(uploaded_file, header=header_index, dtype=str)
+            df_input = pd.read_excel(uploaded_file, header=header_index)
             
-            # GÜNCELLEME: 'Adet' sütununun varlığı kontrol ediliyor.
-            # Önce sütun adlarını düzelterek kontrol yapalım.
-            df_input.rename(columns={'Ges.bestand': 'Adet', 'Ges.bes': 'Adet', 'tan': 'Adet'}, inplace=True)
-            if 'Adet' not in df_input.columns:
+            # Stok sütununun varlığını esnek bir şekilde kontrol et
+            temp_cols = [str(c).lower().strip() for c in df_input.columns]
+            if not any(c in ['adet', 'ges.bestand', 'ges.bes', 'tan'] for c in temp_cols):
                  st.error(
                     f"HATA: Stok miktarını içeren 'Adet' (veya 'Ges.bestand', 'Ges.bes') sütunu bulunamadı. "
                     f"Lütfen doğru başlık satırını ({header_row}) seçtiğinizden emin olun."
                 )
             else:
                 with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
-                    sonuc_df, ozet_df = stok_dagitimi(df_input)
+                    sonuc_df, ozet_df = stok_dagitimi(df_input.copy())
 
                 st.success("✅ Hesaplama başarıyla tamamlandı!")
                 
                 st.subheader("Bayi Özet Tablosu")
-                st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f}"}))
+                if ozet_df.empty:
+                    st.warning("Hesaplama sonucunda herhangi bir bayiye satış yapılamadı.")
+                else:
+                    st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f} TL"}))
                 
                 st.subheader("Detaylı Dağıtım Sonucu")
                 st.dataframe(sonuc_df)
