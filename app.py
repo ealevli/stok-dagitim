@@ -33,16 +33,29 @@ def stok_dagitimi(df):
     """
     df.columns = [str(c) for c in df.columns]
 
-    # Sütun adlarındaki yaygın yazım hatalarını ve kısaltmaları standart formata çevirir.
+    # --- GÜNCELLEME: Düzeltme listesi daha kapsamlı hale getirildi ---
+    # Bu sözlük, eski ('TeklifFiyat') ve farklı yazılmış sütun adlarını
+    # standart formata ('Teklif') çevirerek geriye dönük uyumluluk sağlar.
     sutun_duzeltmeleri = {
-        'DogmerTeklif': 'Doğmer Teklif',
-        'HasmerTeki': 'Hasmer Teklif',
+        # Adet Sütunları için Düzeltmeler
         'KolG Adı': 'KolG Adet',
-        'KolG Tek': 'KolG Teklif',
         'Kolist1 adet': 'Kolist1 Adet',
-        'Kolist1 Tekliffiyat': 'Kolist1 Teklif',
         'Kolist2 adet': 'Kolist2 Adet',
+        'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
+        'MNGIST GANTEP ADET': 'MNGIST GANTEP Adet',
+
+        # Teklif Sütunları için Kapsamlı Düzeltmeler
+        'DogmerTeklif': 'Doğmer Teklif',
+        'Doğmer Tekliffiyat': 'Doğmer Teklif',
+        'HasmerTeki': 'Hasmer Teklif',
+        'Hasmer Tekliffiyat': 'Hasmer Teklif',
+        'KolG Tek': 'KolG Teklif',
+        'KolG Tekliffiyat': 'KolG Teklif',
+        'Kolist1 Tekliffiyat': 'Kolist1 Teklif',
         'Kolist2 Tekliffiyat': 'Kolist2 Teklif',
+        'BirollarTeklifFiyat': 'Birollar Teklif',
+        'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS Teklif',
+        'MNGIST GANTEP Tekliffiyat': 'MNGIST GANTEP Teklif',
     }
     df.rename(columns=sutun_duzeltmeleri, inplace=True)
 
@@ -51,15 +64,10 @@ def stok_dagitimi(df):
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
-    # --- HATA DÜZELTME (Duplicate column names found) ---
-    # Program tarafından eklenen sonuç sütunları (Kalan Stok vb.), eğer yüklenen
-    # dosyada zaten mevcutsa, yinelenen sütun hatasına neden olur.
-    # Bu blok, bu sütunları işlemeye başlamadan önce kaldırarak sorunu çözer.
     output_columns = ['Kalan Stok', 'Seçilen Bayiler', 'Toplam Satış Tutarı']
     for col_name in output_columns:
         if col_name in df.columns:
             df.drop(col_name, axis=1, inplace=True)
-    # --- DÜZELTME SONU ---
 
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = "" 
