@@ -34,7 +34,6 @@ def stok_dagitimi(df):
     df.columns = [str(c) for c in df.columns]
 
     # Sütun adlarındaki yaygın yazım hatalarını ve kısaltmaları standart formata çevirir.
-    # Örn: 'HasmerTeki' -> 'Hasmer Teklif', 'KolG Adı' -> 'KolG Adet'
     sutun_duzeltmeleri = {
         'DogmerTeklif': 'Doğmer Teklif',
         'HasmerTeki': 'Hasmer Teklif',
@@ -52,6 +51,16 @@ def stok_dagitimi(df):
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
+    # --- HATA DÜZELTME (Duplicate column names found) ---
+    # Program tarafından eklenen sonuç sütunları (Kalan Stok vb.), eğer yüklenen
+    # dosyada zaten mevcutsa, yinelenen sütun hatasına neden olur.
+    # Bu blok, bu sütunları işlemeye başlamadan önce kaldırarak sorunu çözer.
+    output_columns = ['Kalan Stok', 'Seçilen Bayiler', 'Toplam Satış Tutarı']
+    for col_name in output_columns:
+        if col_name in df.columns:
+            df.drop(col_name, axis=1, inplace=True)
+    # --- DÜZELTME SONU ---
+
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = "" 
     df['Toplam Satış Tutarı'] = 0.0
@@ -60,7 +69,6 @@ def stok_dagitimi(df):
         if 'Durum' in df.columns and pd.notna(row.get('Durum')) and str(row.get('Durum')).strip().lower() != 'satılabilinir':
             continue
 
-        # GÜNCELLEME: Ana stok sütunu olarak 'Adet' kullanılıyor.
         kalan_stok = akilli_sayi_cevirici(row.get('Adet'))
         if kalan_stok <= 0:
             continue
@@ -68,7 +76,6 @@ def stok_dagitimi(df):
         teklifler = []
         for bayi in bayiler:
             talep_adet_col = f'{bayi} Adet'.strip()
-            # GÜNCELLEME: Fiyat sütunu olarak '[Bayi Adı] Teklif' formatı kullanılıyor.
             teklif_fiyat_col = f'{bayi} Teklif'.strip()
             
             if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
@@ -130,7 +137,6 @@ if uploaded_file is not None:
             header_index = header_row - 1
             df_input = pd.read_excel(uploaded_file, engine='openpyxl', header=header_index)
             
-            # GÜNCELLEME: 'Adet' sütununun varlığı kontrol ediliyor.
             if 'Adet' not in df_input.columns:
                 st.error(
                     f"HATA: 'Adet' sütunu bulunamadı. "
