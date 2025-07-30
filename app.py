@@ -15,13 +15,11 @@ def akilli_sayi_cevirici(value):
         return 0.0
     try:
         s_val = str(value)
-        # Önce binlik ayıracı olan noktayı kaldır, sonra ondalık ayıracı olan virgülü noktaya çevir
         if ',' in s_val and '.' in s_val:
             if s_val.find('.') < s_val.find(','):
                 s_val = s_val.replace('.', '').replace(',', '.')
-            else: # 1,250.75 formatı için
+            else:
                 s_val = s_val.replace(',', '')
-        # Sadece virgül varsa ondalık ayıracı olarak kabul et
         elif ',' in s_val:
             s_val = s_val.replace(',', '.')
         return float(s_val)
@@ -30,44 +28,48 @@ def akilli_sayi_cevirici(value):
 
 def stok_dagitimi(df):
     """
-    Sizin tarif ettiğiniz dağıtım mantığını ve bu mantığın doğru çalışması için
-    gerekli akıllı sayı okuma düzeltmesini içeren nihai fonksiyon.
+    İstekleriniz doğrultusunda güncellenmiş dağıtım mantığını içeren fonksiyon.
+    'Adet' sütununu ana stok olarak kullanır ve fiyat sütunlarında 'Teklif' arar.
     """
-    # HATA DÜZELTME: Excel'den gelebilecek sayısal veya boş sütun başlıklarının
-    # hataya yol açmasını engellemek için tüm başlıkları metne (string) çevir.
     df.columns = [str(c) for c in df.columns]
 
+    # Sütun adlarındaki yaygın yazım hatalarını ve kısaltmaları standart formata çevirir.
+    # Örn: 'HasmerTeki' -> 'Hasmer Teklif', 'KolG Adı' -> 'KolG Adet'
     sutun_duzeltmeleri = {
-        'BirollarTeklifFiyat': 'Birollar TeklifFiyat', 'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
-        'MNGIST OZIS ADET': 'MNGIST OZIS Adet', 'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
-        'Kolist1 adet': 'Kolist1 Adet', 'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
-        'Kolist2 adet': 'Kolist2 Adet', 'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat'
+        'DogmerTeklif': 'Doğmer Teklif',
+        'HasmerTeki': 'Hasmer Teklif',
+        'KolG Adı': 'KolG Adet',
+        'KolG Tek': 'KolG Teklif',
+        'Kolist1 adet': 'Kolist1 Adet',
+        'Kolist1 Tekliffiyat': 'Kolist1 Teklif',
+        'Kolist2 adet': 'Kolist2 Adet',
+        'Kolist2 Tekliffiyat': 'Kolist2 Teklif',
     }
     df.rename(columns=sutun_duzeltmeleri, inplace=True)
 
+    # Bayi listesini 'Adet' içeren sütunlardan otomatik olarak bulur.
     bayiler = sorted(list(set([col.replace('Adet', '').strip() for col in df.columns if 'Adet' in col])))
     
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
 
-    # Sonuç DataFrame'ine yeni sütunları ekle
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = "" 
     df['Toplam Satış Tutarı'] = 0.0
 
     for index, row in df.iterrows():
-        # GÜNCELLEME: 'Durum' sütunu yoksa veya boşsa, satırı işleme dahil et.
-        # Varsa ve 'satılabilinir' değilse atla.
         if 'Durum' in df.columns and pd.notna(row.get('Durum')) and str(row.get('Durum')).strip().lower() != 'satılabilinir':
             continue
 
-        kalan_stok = akilli_sayi_cevirici(row.get('Ges.bestand'))
+        # GÜNCELLEME: Ana stok sütunu olarak 'Adet' kullanılıyor.
+        kalan_stok = akilli_sayi_cevirici(row.get('Adet'))
         if kalan_stok <= 0:
             continue
 
         teklifler = []
         for bayi in bayiler:
             talep_adet_col = f'{bayi} Adet'.strip()
-            teklif_fiyat_col = f'{bayi} TeklifFiyat'.strip()
+            # GÜNCELLEME: Fiyat sütunu olarak '[Bayi Adı] Teklif' formatı kullanılıyor.
+            teklif_fiyat_col = f'{bayi} Teklif'.strip()
             
             if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
                 talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col))
@@ -116,7 +118,6 @@ uploaded_file = st.file_uploader("Lütfen Excel dosyanızı buraya sürükleyin 
 if uploaded_file is not None:
     st.info(f"'{uploaded_file.name}' dosyası yüklendi.")
     
-    # GÜNCELLEME: Kullanıcının başlık satırını seçmesine izin ver.
     header_row = st.number_input(
         "Excel'deki başlıklar kaçıncı satırda?", 
         min_value=1, 
@@ -126,14 +127,13 @@ if uploaded_file is not None:
     
     if st.button("Stok Dağıtımını Başlat", type="primary"):
         try:
-            # Pandas 0'dan saymaya başladığı için kullanıcı girdisinden 1 çıkarıyoruz.
             header_index = header_row - 1
             df_input = pd.read_excel(uploaded_file, engine='openpyxl', header=header_index)
             
-            # Doğrulama: Gerekli sütun var mı diye kontrol et
-            if 'Ges.bestand' not in df_input.columns:
+            # GÜNCELLEME: 'Adet' sütununun varlığı kontrol ediliyor.
+            if 'Adet' not in df_input.columns:
                 st.error(
-                    f"HATA: 'Ges.bestand' sütunu bulunamadı. "
+                    f"HATA: 'Adet' sütunu bulunamadı. "
                     f"Lütfen doğru başlık satırını ({header_row}) seçtiğinizden ve "
                     f"Excel dosyanızda bu isimde bir sütun olduğundan emin olun."
                 )
@@ -152,7 +152,6 @@ if uploaded_file is not None:
                 st.subheader("Detaylı Dağıtım Sonucu")
                 st.dataframe(sonuc_df)
                 
-                # Excel dosyasını hafızada oluşturma
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     sonuc_df.to_excel(writer, sheet_name='Detaylı Dağıtım Sonucu', index=False)
@@ -186,4 +185,3 @@ if uploaded_file is not None:
         except Exception as e:
             st.error(f"Bir hata oluştu: {e}")
             st.info("Lütfen başlık satırı numarasını doğru girdiğinizden ve Excel dosyanızın formatının bozuk olmadığından emin olun.")
-
