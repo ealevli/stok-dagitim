@@ -30,11 +30,14 @@ def stok_dagitimi(df): # Fonksiyon, dosya yolu yerine doğrudan DataFrame alacak
     """
     # Dosya okuma bloğu kaldırıldı çünkü df zaten argüman olarak geliyor.
     
+    # GÜNCELLEME: Yeni bayi 'KolistG' eklendi.
     sutun_duzeltmeleri = {
         'BirollarTeklifFiyat': 'Birollar TeklifFiyat', 'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
         'MNGIST OZIS ADET': 'MNGIST OZIS Adet', 'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',
         'Kolist1 adet': 'Kolist1 Adet', 'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
-        'Kolist2 adet': 'Kolist2 Adet', 'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat'
+        'Kolist2 adet': 'Kolist2 Adet', 'Dogmer Tekliffiyat': 'Doğmer TeklifFiyat',
+        'KolistG adet': 'KolistG Adet',
+        'KolistG Tekliffiyat': 'KolistG TeklifFiyat'
     }
     df.rename(columns=sutun_duzeltmeleri, inplace=True)
 
@@ -105,55 +108,73 @@ st.write("Bu araç, Excel dosyanızdaki teklifleri analiz ederek stokları en y�
 uploaded_file = st.file_uploader("Lütfen Excel dosyanızı buraya sürükleyin veya seçin", type=["xlsx"])
 
 if uploaded_file is not None:
-    st.info(f"'{uploaded_file.name}' dosyası yüklendi. Hesaplamayı başlatmak için butona tıklayın.")
+    st.info(f"'{uploaded_file.name}' dosyası yüklendi.")
     
-    try:
-        # Excel dosyasını direkt olarak DataFrame'e oku
-        df_input = pd.read_excel(uploaded_file, dtype=str)
-        
-        if st.button("Stok Dağıtımını Başlat", type="primary"):
-            with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
-                # Sizin sağladığınız ana fonksiyonu çağır
-                sonuc_df, ozet_df = stok_dagitimi(df_input)
+    # GÜNCELLEME: Başlık satırını seçme özelliği eklendi.
+    header_row = st.number_input(
+        "Excel'deki başlıklar kaçıncı satırda?", 
+        min_value=1, 
+        value=1, 
+        help="Lütfen sütun başlıklarınızın (Ges.bestand, Durum vb.) bulunduğu satır numarasını girin."
+    )
+    
+    if st.button("Stok Dağıtımını Başlat", type="primary"):
+        try:
+            # GÜNCELLEME: Excel dosyası, seçilen başlık satırına göre okunuyor.
+            header_index = header_row - 1
+            df_input = pd.read_excel(uploaded_file, header=header_index, dtype=str)
+            
+            # Başlıkların doğru okunduğundan emin olmak için kontrol
+            if 'Ges.bestand' not in df_input.columns:
+                 st.error(
+                    f"HATA: 'Ges.bestand' sütunu bulunamadı. "
+                    f"Lütfen doğru başlık satırını ({header_row}) seçtiğinizden emin olun."
+                )
+            else:
+                with st.spinner('Hesaplamalar yapılıyor, lütfen bekleyin...'):
+                    # Sizin sağladığınız ana fonksiyonu çağır
+                    sonuc_df, ozet_df = stok_dagitimi(df_input)
 
-            st.success("✅ Hesaplama başarıyla tamamlandı!")
-            
-            st.subheader("Bayi Özet Tablosu")
-            st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f}"}))
-            
-            st.subheader("Detaylı Dağıtım Sonucu")
-            st.dataframe(sonuc_df)
-            
-            # Excel dosyasını hafızada oluşturma
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                sonuc_df.to_excel(writer, sheet_name='Detaylı Dağıtım Sonucu', index=False)
-                ozet_df.to_excel(writer, sheet_name='Bayi Özet Tablosu', index=False)
+                st.success("✅ Hesaplama başarıyla tamamlandı!")
                 
-                # Excel'de sayı formatını ayarlama
-                workbook = writer.book
-                ws1 = writer.sheets['Detaylı Dağıtım Sonucu']
-                ws2 = writer.sheets['Bayi Özet Tablosu']
-                number_format = '#,##0.00'
+                st.subheader("Bayi Özet Tablosu")
+                st.dataframe(ozet_df.style.format({"Toplam Ödenecek Tutar": "{:,.2f}"}))
+                
+                st.subheader("Detaylı Dağıtım Sonucu")
+                st.dataframe(sonuc_df)
+                
+                # Excel dosyasını hafızada oluşturma
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    sonuc_df.to_excel(writer, sheet_name='Detaylı Dağıtım Sonucu', index=False)
+                    ozet_df.to_excel(writer, sheet_name='Bayi Özet Tablosu', index=False)
+                    
+                    # Excel'de sayı formatını ayarlama
+                    workbook = writer.book
+                    ws1 = writer.sheets['Detaylı Dağıtım Sonucu']
+                    ws2 = writer.sheets['Bayi Özet Tablosu']
+                    number_format = '#,##0.00'
 
-                for col_name in ['Toplam Satış Tutarı', 'Kalan Stok']:
-                    if col_name in sonuc_df.columns:
-                        col_idx = list(sonuc_df.columns).index(col_name) + 1
-                        for row in ws1.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                    for col_name in ['Toplam Satış Tutarı', 'Kalan Stok']:
+                        if col_name in sonuc_df.columns:
+                            col_idx = list(sonuc_df.columns).index(col_name) + 1
+                            for row in ws1.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx, max_row=ws1.max_row):
+                                if row[0].value is not None: row[0].number_format = number_format
+                    
+                    if not ozet_df.empty:
+                        col_idx_2 = list(ozet_df.columns).index('Toplam Ödenecek Tutar') + 1
+                        for row in ws2.iter_rows(min_row=2, min_col=col_idx_2, max_col=col_idx_2, max_row=ws2.max_row):
                             if row[0].value is not None: row[0].number_format = number_format
+
+                processed_data = output.getvalue()
                 
-                col_idx_2 = list(ozet_df.columns).index('Toplam Ödenecek Tutar') + 1
-                for row in ws2.iter_rows(min_row=2, min_col=col_idx_2, max_col=col_idx_2):
-                    if row[0].value is not None: row[0].number_format = number_format
+                st.download_button(
+                    label="📁 Sonuçları Excel Olarak İndir",
+                    data=processed_data,
+                    file_name='stok_dagitim_sonucu.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
 
-            processed_data = output.getvalue()
-            
-            st.download_button(
-                label="📁 Sonuçları Excel Olarak İndir",
-                data=processed_data,
-                file_name='stok_dagitim_sonucu.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-
-    except Exception as e:
-        st.error(f"Bir hata oluştu: {e}")
+        except Exception as e:
+            st.error(f"Bir hata oluştu: {e}")
+            st.info("Lütfen başlık satırı numarasını doğru girdiğinizden ve Excel dosyanızın formatının bozuk olmadığından emin olun.")
