@@ -109,7 +109,7 @@ def _extract_dealers(df: pd.DataFrame) -> list[str]:
 def stok_dagitimi(df: pd.DataFrame, debug: bool = False):
     """
     Stokları en yüksek birim fiyata göre dağıtır.
-    Kolon adlarındaki farklılıklara toleranslıdır.
+    'Durum' sütunu dikkate ALINMAZ.
     """
     # 1) Kolon adlarını string'e çevir ve kırp
     df.columns = [str(c).strip() for c in df.columns]
@@ -150,20 +150,13 @@ def stok_dagitimi(df: pd.DataFrame, debug: bool = False):
 
     bayi_toplam_odemeleri = {bayi: 0.0 for bayi in fiyat_kolon_haritasi.keys()}
 
-    # 6) Çıkış kolonları (varsa üzerine yazar)
+    # 6) Çıkış kolonları
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = ""
     df['Toplam Satış Tutarı'] = 0.0
 
-    # 7) Satır satır dağıtım
+    # 7) Satır satır dağıtım (DURUM KONTROLÜ YOK)
     for index, row in df.iterrows():
-        # Durum filtresi (varsa)
-        if 'Durum' in df.columns:
-            durum = str(row.get('Durum', '')).strip().lower()
-            izinli = {'satılabilir', 'satilabilir', 'satılabilinir', 'satilabilinir'}
-            if durum and durum not in izinli:
-                continue
-
         # Stok
         kalan_stok = akilli_sayi_cevirici(row.get('Ges.bestand'))
         if kalan_stok <= 0:
@@ -216,6 +209,7 @@ def stok_dagitimi(df: pd.DataFrame, debug: bool = False):
     )
 
     return df, ozet_df
+
 
 # ------------------------------------------------------------
 # STREAMLIT ARAYÜZ
@@ -315,3 +309,4 @@ if uploaded_file is not None:
         except Exception as e:
             st.error(f"Bir hata oluştu: {e}")
             st.info("Başlık satırını doğru seçtiğinizden ve Excel dosyasının bozuk olmadığından emin olun.")
+
