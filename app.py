@@ -1,3 +1,4 @@
+# app.py
 import re
 import io
 import pandas as pd
@@ -7,14 +8,17 @@ import streamlit as st
 # Yardımcılar
 # ------------------------------------------------------------
 def _normalize(s: str) -> str:
+    """Kolon adı karşılaştırmaları için sadeleştirilmiş form."""
     return str(s).strip().lower().replace(' ', '').replace('_', '')
 
+# Stok kolonu için olası isimler
 _MUHTEMEL_STOK_ISIMLER = {
     'ges.bestand', 'gesbestand', 'gesbes', 'gesbesand', 'ges',
     'bestand', 'stok', 'tan'
 }
 
 def _map_stok_kolon_adi(col):
+    """Kolon adını stok kolonuna eşlerse 'Ges.bestand' döndürür."""
     return 'Ges.bestand' if _normalize(col) in _MUHTEMEL_STOK_ISIMLER else col
 
 def akilli_sayi_cevirici(value):
@@ -25,16 +29,16 @@ def akilli_sayi_cevirici(value):
     if pd.isna(value) or value == '':
         return 0.0
     s = str(value).strip()
-    s = re.sub(r'[^\d,.\-]', '', s)  # sayı, virgül, nokta ve eksi dışını sil
+    # rakam, virgül, nokta, eksi dışını temizle
+    s = re.sub(r'[^\d,.\-]', '', s)
 
-    # hem virgül hem nokta varsa: en son görülen ayraç ondalıktır kabulü
+    # hem virgül hem nokta varsa: son görülen ayraç ondalıktır kabulü
     if ',' in s and '.' in s:
         last_comma = s.rfind(',')
         last_dot = s.rfind('.')
-        decimal_sep = ',' if last_comma > last_dot else '.'
-        thousand_sep = '.' if decimal_sep == ',' else ','
-        s = s.replace(thousand_sep, '')
-        s = s.replace(decimal_sep, '.')
+        dec = ',' if last_comma > last_dot else '.'
+        thou = '.' if dec == ',' else ','
+        s = s.replace(thou, '').replace(dec, '.')
         try:
             return float(s)
         except:
@@ -42,30 +46,80 @@ def akilli_sayi_cevirici(value):
 
     # sadece virgül varsa → ondalık kabul et
     if ',' in s and '.' not in s:
-        s = s.replace('.', '')  # olası binlik noktaları
-        s = s.replace(',', '.')
+        s = s.replace('.', '').replace(',', '.')
     try:
         return float(s)
     except:
         return 0.0
 
+# ---- Bayi kolonlarını akıllıca eşleyecek yardımcılar ------------------------
+
+# Fiyat kolonlarında en çok rastlanan token'lar (öncelik sırasıyla)
+_FIYAT_TOKENS_PRIORITIZED = [
+    'tekliffiyat', 'teklif_fiyat', 'tekliffiyati', 'teklif',
+    'birimfiyat', 'birim_fiyat', 'birimfiyati',
+    'bfiyat', 'fiyat'
+]
+# Fiyat kolonunda istemediğimiz anahtarlar
+_EXCLUDE_TOKENS = {'toplam', 'adet'}
+
+def _find_price_col_for_base(base_name: str, all_columns: list[str]) -> str | None:
+    """
+    base_name: 'Birollar' gibi bayi kökü.
+    all_columns: df.columns (stringleştirilmiş).
+    Dönüş: eşleşen fiyat kolon adı ya da None.
+    """
+    base_norm = _normalize(base_name)
+    candidates = []
+    for c in all_columns:
+        cn = _normalize(c)
+        # aynı bayi köküyle başlamalı (örn 'birollar...')
+        if not cn.startswith(base_norm):
+            continue
+        # 'adet' ve 'toplam' gibi kolonlar fiyat değildir
+        if any(tok in cn for tok in _EXCLUDE_TOKENS):
+            continue
+        # token önceliğine göre skorla
+        matched = False
+        for prio, tok in enumerate(_FIYAT_TOKENS_PRIORITIZED):
+            if tok in cn:
+                candidates.append((prio, c))
+                matched = True
+                break
+        if not matched and 'fiyat' in cn:
+            # yalnız 'fiyat' geçen, ama listede olmayan varyasyonlar için
+            candidates.append((len(_FIYAT_TOKENS_PRIORITIZED) + 1, c))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
+def _extract_dealers(df: pd.DataFrame) -> list[str]:
+    """'* Adet' kolonlarından bayi isim köklerini çıkarır."""
+    bases = []
+    for col in df.columns:
+        s = str(col)
+        if 'Adet' in s:
+            bases.append(s.replace('Adet', '').strip())
+    return sorted(list(set(bases)))
+
 # ------------------------------------------------------------
 # Dağıtım Mantığı
 # ------------------------------------------------------------
-def stok_dagitimi(df: pd.DataFrame):
+def stok_dagitimi(df: pd.DataFrame, debug: bool = False):
     """
     Stokları en yüksek birim fiyata göre dağıtır.
-    Kolon adlarındaki küçük farklılıklara toleranslıdır.
+    Kolon adlarındaki farklılıklara toleranslıdır.
     """
-    # 1) Kolon adlarını string'e çevir ve buda
+    # 1) Kolon adlarını string'e çevir ve kırp
     df.columns = [str(c).strip() for c in df.columns]
 
-    # 2) Bilinen yazım hatası/çeşitlemeleri düzelt
+    # 2) Bilinen yazım düzeltmeleri (varsa)
     sutun_duzeltmeleri = {
         'BirollarTeklifFiyat': 'Birollar TeklifFiyat',
         'MNGIST OZIS Tekliffiyat': 'MNGIST OZIS TeklifFiyat',
         'MNGIST OZIS ADET': 'MNGIST OZIS Adet',
-        'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',  # I → l düzeltmesi
+        'KolIist1 Tekliffiyat': 'Kolist1 TeklifFiyat',  # I → l
         'Kolist1 adet': 'Kolist1 Adet',
         'KolIist2 Tekliffiyat': 'Kolist2 TeklifFiyat',
         'Kolist2 adet': 'Kolist2 Adet',
@@ -79,27 +133,29 @@ def stok_dagitimi(df: pd.DataFrame):
     # 3) Stok kolonunu normalize et
     df.rename(columns=_map_stok_kolon_adi, inplace=True)
 
-    # 4) Bayi isimlerini, "* Adet" kolonlarından çıkar (kolon adları str olarak okunur)
-    bayiler = sorted(
-        list(
-            set(
-                [
-                    str(col).replace('Adet', '').strip()
-                    for col in df.columns
-                    if 'Adet' in str(col)
-                ]
-            )
-        )
-    )
+    # 4) Bayi köklerini bul
+    bayiler = _extract_dealers(df)
 
-    bayi_toplam_odemeleri = {bayi: 0.0 for bayi in bayiler}
+    # 5) Her bayi için fiyat kolonunu dinamik bul
+    fiyat_kolon_haritasi = {}
+    for bayi in bayiler:
+        adet_col = f"{bayi} Adet"
+        fiyat_col = _find_price_col_for_base(bayi, list(df.columns))
+        if adet_col in df.columns and fiyat_col:
+            fiyat_kolon_haritasi[bayi] = (adet_col, fiyat_col)
 
-    # 5) Çıkış kolonlarını hazırla (varsa üzerine yazar)
+    if debug:
+        st.write("🔎 Bulunan bayi kökleri:", bayiler)
+        st.write("🔎 Fiyat kolon eşleşmeleri:", fiyat_kolon_haritasi)
+
+    bayi_toplam_odemeleri = {bayi: 0.0 for bayi in fiyat_kolon_haritasi.keys()}
+
+    # 6) Çıkış kolonları (varsa üzerine yazar)
     df['Kalan Stok'] = 0.0
     df['Seçilen Bayiler'] = ""
     df['Toplam Satış Tutarı'] = 0.0
 
-    # 6) Satır satır dağıtım
+    # 7) Satır satır dağıtım
     for index, row in df.iterrows():
         # Durum filtresi (varsa)
         if 'Durum' in df.columns:
@@ -115,47 +171,48 @@ def stok_dagitimi(df: pd.DataFrame):
 
         # Teklifleri topla
         teklifler = []
-        for bayi in bayiler:
-            talep_adet_col = f'{bayi} Adet'
-            teklif_fiyat_col = f'{bayi} TeklifFiyat'  # senin şeman
-            if talep_adet_col in df.columns and teklif_fiyat_col in df.columns:
-                talep_adet = akilli_sayi_cevirici(row.get(talep_adet_col, 0))
-                teklif_fiyat = akilli_sayi_cevirici(row.get(teklif_fiyat_col, 0))
-                if talep_adet > 0 and teklif_fiyat > 0:
-                    teklifler.append(
-                        {'bayi_adi': bayi, 'talep_adet': talep_adet, 'teklif_fiyat': teklif_fiyat}
-                    )
+        for bayi, (adet_col, fiyat_col) in fiyat_kolon_haritasi.items():
+            talep_adet = akilli_sayi_cevirici(row.get(adet_col, 0))
+            teklif_fiyat = akilli_sayi_cevirici(row.get(fiyat_col, 0))
+            if talep_adet > 0 and teklif_fiyat > 0:
+                teklifler.append({
+                    'bayi_adi': bayi,
+                    'talep_adet': talep_adet,
+                    'teklif_fiyat': teklif_fiyat
+                })
 
-        # Fiyata göre sırala (azalan)
-        sirali_teklifler = sorted(teklifler, key=lambda x: x['teklif_fiyat'], reverse=True)
+        if not teklifler:
+            # bu üründe geçerli teklif yoksa olduğu gibi geç
+            df.loc[index, 'Kalan Stok'] = kalan_stok
+            continue
 
-        # Dağıt
+        # En yüksek birim fiyata göre sırala
+        sirali = sorted(teklifler, key=lambda x: x['teklif_fiyat'], reverse=True)
+
         secilenler = []
         toplam_gelir = 0.0
-        for teklif in sirali_teklifler:
+        for t in sirali:
             if kalan_stok <= 0:
                 break
-            bayi_adi = teklif['bayi_adi']
-            talep_edilen = teklif['talep_adet']
-            birim_fiyat = teklif['teklif_fiyat']
-            atanacak = min(talep_edilen, kalan_stok)
+            atanacak = min(t['talep_adet'], kalan_stok)
             if atanacak > 0:
-                satis_tutari = atanacak * birim_fiyat
-                bayi_toplam_odemeleri[bayi_adi] += satis_tutari
+                satis = atanacak * t['teklif_fiyat']
+                bayi_toplam_odemeleri[t['bayi_adi']] += satis
                 kalan_stok -= atanacak
-                secilenler.append(bayi_adi)
-                toplam_gelir += satis_tutari
+                toplam_gelir += satis
+                secilenler.append(t['bayi_adi'])
 
         df.loc[index, 'Toplam Satış Tutarı'] = toplam_gelir
         df.loc[index, 'Kalan Stok'] = kalan_stok
         df.loc[index, 'Seçilen Bayiler'] = ", ".join(secilenler)
 
-    # 7) Özet tablo
+    # 8) Özet tablo
     ozet_df = (
-        pd.DataFrame(list(bayi_toplam_odemeleri.items()), columns=['Bayi Adı', 'Toplam Ödenecek Tutar'])
-        .query('`Toplam Ödenecek Tutar` > 0')
-        .sort_values(by='Toplam Ödenecek Tutar', ascending=False)
-        .reset_index(drop=True)
+        pd.DataFrame(list(bayi_toplam_odemeleri.items()),
+                     columns=['Bayi Adı', 'Toplam Ödenecek Tutar'])
+         .query('`Toplam Ödenecek Tutar` > 0')
+         .sort_values('Toplam Ödenecek Tutar', ascending=False)
+         .reset_index(drop=True)
     )
 
     return df, ozet_df
@@ -164,7 +221,6 @@ def stok_dagitimi(df: pd.DataFrame):
 # STREAMLIT ARAYÜZ
 # ------------------------------------------------------------
 st.set_page_config(page_title="Stok Dağıtım Otomasyonu", layout="wide")
-
 st.title("📦 Stok Dağıtım Otomasyon Aracı")
 st.write("Excel’deki tekliflere göre stokları en yüksek birim fiyata atar ve raporlar.")
 
@@ -173,20 +229,25 @@ uploaded_file = st.file_uploader("Excel dosyasını yükle (.xlsx)", type=["xlsx
 if uploaded_file is not None:
     st.info(f"'{uploaded_file.name}' dosyası yüklendi.")
 
-    header_row = st.number_input(
-        "Excel'deki başlıklar kaçıncı satırda?",
-        min_value=1,
-        value=1,
-        help="Sütun başlıklarının (Ges.bestand, Durum, ... ) bulunduğu satır numarası."
-    )
+    col1, col2 = st.columns([1,1])
+    with col1:
+        header_row = st.number_input(
+            "Excel'deki başlıklar kaçıncı satırda?",
+            min_value=1,
+            value=1,
+            help="Sütun başlıklarının (Ges.bestand, Durum, ... ) bulunduğu satır numarası."
+        )
+    with col2:
+        debug = st.checkbox("Eşleşmeleri göster (debug)", value=False)
 
     if st.button("Stok Dağıtımını Başlat", type="primary"):
         try:
             header_index = header_row - 1
             # Tüm hücreleri string olarak oku (karışık veri tipleri için güvenli)
             df_input = pd.read_excel(uploaded_file, header=header_index, dtype=str)
-            # Kolon adlarını string'e çevir ve buda (INT kolon adları 'is not iterable' hatasını doğurmasın)
+            # Kolon adlarını string'e çevir ve buda (INT kolon adları 'is not iterable' hatasını engeller)
             df_input.columns = [str(c).strip() for c in df_input.columns]
+
             # Stok kolonunu normalize et (erken kontrol için)
             temp_df = df_input.copy()
             temp_df.rename(columns=_map_stok_kolon_adi, inplace=True)
@@ -200,7 +261,7 @@ if uploaded_file is not None:
                 st.stop()
 
             with st.spinner("Hesaplanıyor..."):
-                sonuc_df, ozet_df = stok_dagitimi(df_input.copy())
+                sonuc_df, ozet_df = stok_dagitimi(df_input.copy(), debug=debug)
 
             st.success("✅ Hesaplama tamamlandı!")
 
